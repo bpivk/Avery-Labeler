@@ -46,18 +46,77 @@ class LicenseManager:
         d = self.load_license()
         return max(0, (datetime.strptime(d['expiry'], '%Y-%m-%d') - datetime.now()).days) if d else 0
 
+class RegistrationDialog:
+    def __init__(self, parent, license_mgr):
+        self.result = None
+        self.license_mgr = license_mgr
+        
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("Register Software")
+        self.dialog.geometry("450x250")
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        
+        # Center the dialog
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (450 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (250 // 2)
+        self.dialog.geometry(f'450x250+{x}+{y}')
+        
+        frame = ttk.Frame(self.dialog, padding=20)
+        frame.pack(fill="both", expand=True)
+        
+        ttk.Label(frame, text="Enter your registration details:", font=("Arial", 10, "bold")).pack(pady=(0,10))
+        
+        ttk.Label(frame, text="Email:").pack(anchor="w")
+        self.email_entry = ttk.Entry(frame, width=40)
+        self.email_entry.pack(pady=(0,10), fill="x")
+        
+        ttk.Label(frame, text="License Key:").pack(anchor="w")
+        self.key_entry = ttk.Entry(frame, width=40)
+        self.key_entry.pack(pady=(0,15), fill="x")
+        
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10)
+        
+        ttk.Button(btn_frame, text="Register", command=self.register).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side="left", padx=5)
+        
+        self.dialog.protocol("WM_DELETE_WINDOW", self.cancel)
+        
+    def register(self):
+        email = self.email_entry.get().strip()
+        key = self.key_entry.get().strip()
+        
+        if not email or not key:
+            messagebox.showwarning("Invalid Input", "Please enter both email and license key.", parent=self.dialog)
+            return
+        
+        expiry_date = self.license_mgr.validate_key(email, key)
+        if expiry_date:
+            self.license_mgr.save_license(email, expiry_date)
+            messagebox.showinfo("Success", f"Registration successful!\nLicense valid until: {expiry_date}", parent=self.dialog)
+            self.result = True
+            self.dialog.destroy()
+        else:
+            messagebox.showerror("Invalid License", "The license key is invalid or does not match the email.", parent=self.dialog)
+    
+    def cancel(self):
+        self.result = False
+        self.dialog.destroy()
+
 class LabelPrinterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Label Printer - Avery 3658")
-        self.root.geometry("700x700")
+        self.root.geometry("700x750")
         self.license_mgr = LicenseManager()
         if not self.check_license():
-            root.destroy(); return
+            root.destroy()
+            return
 
         # 🎨 Available fonts
-        self.available_fonts = ["Arial", "Arial Narrow", "Helvetica", "Times New Roman", "Courier New"
-        ]
+        self.available_fonts = ["Arial", "Arial Narrow", "Helvetica", "Times New Roman", "Courier New"]
 
         # 🗂 Font file map for PDF
         self.font_map = {
@@ -100,9 +159,25 @@ class LabelPrinterApp:
                         break
 
     def check_license(self):
-        if self.license_mgr.load_license(): return True
-        messagebox.showinfo("License", "Demo mode: no license found.")
-        return True
+        license_data = self.license_mgr.load_license()
+        if license_data:
+            return True
+        
+        # No valid license - show registration dialog
+        messagebox.showwarning(
+            "Registration Required", 
+            "This software requires a valid license to run.\n\nPlease enter your registration details."
+        )
+        
+        dialog = RegistrationDialog(self.root, self.license_mgr)
+        self.root.wait_window(dialog.dialog)
+        
+        # Check if registration was successful
+        if self.license_mgr.load_license():
+            return True
+        else:
+            messagebox.showerror("Registration Required", "Software cannot run without a valid license.")
+            return False
 
     def create_widgets(self):
         main = ttk.Frame(self.root, padding=10)
@@ -113,8 +188,16 @@ class LabelPrinterApp:
         # 🧭 Menu
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
+        
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Import from Excel", command=self.import_from_excel)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Register Software", command=self.show_registration_dialog)
         help_menu.add_command(label="Check License", command=self.show_license_info)
         help_menu.add_separator()
         help_menu.add_command(label="About", command=self.show_about)
@@ -151,8 +234,16 @@ class LabelPrinterApp:
         self.preview_canvas.pack(padx=10, pady=5)
         self.update_preview()
 
-        # 🧾 Generate
-        ttk.Button(main, text="Generate PDF Labels", command=self.generate_labels).pack(pady=20)
+        # 🧾 Buttons
+        button_frame = ttk.Frame(main)
+        button_frame.pack(pady=15)
+        
+        ttk.Button(button_frame, text="📁 Import from Excel", command=self.import_from_excel).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="📄 Generate PDF Labels", command=self.generate_labels).pack(side="left", padx=5)
+
+    def show_registration_dialog(self):
+        dialog = RegistrationDialog(self.root, self.license_mgr)
+        self.root.wait_window(dialog.dialog)
 
     def show_license_info(self):
         data = self.license_mgr.load_license()
@@ -171,13 +262,49 @@ class LabelPrinterApp:
         messagebox.showinfo(
             "About",
             "Label Printer - Avery Zweckform 3658\n"
-            "Version 1.3\n\n"
+            "Version 1.4\n\n"
             "Developed by Blaž Pivk\n"
             "© 2025"
         )
 
+    def import_from_excel(self):
+        """Import data from Excel file (first column only)"""
+        filename = filedialog.askopenfilename(
+            title="Select Excel File",
+            filetypes=[("Excel Files", "*.xlsx *.xls"), ("All Files", "*.*")]
+        )
+        
+        if not filename:
+            return
+        
+        try:
+            workbook = openpyxl.load_workbook(filename, data_only=True)
+            sheet = workbook.active
+            
+            # Extract data from first column (skip empty cells)
+            data = []
+            for row in sheet.iter_rows(min_row=1, min_col=1, max_col=1):
+                cell_value = row[0].value
+                if cell_value is not None:
+                    # Convert to string and strip whitespace
+                    data.append(str(cell_value).strip())
+            
+            if not data:
+                messagebox.showwarning("No Data", "No data found in the first column of the Excel file.")
+                return
+            
+            # Clear current text and insert imported data
+            self.text_input.delete("1.0", "end")
+            self.text_input.insert("1.0", "\n".join(data))
+            self.update_preview()
+            
+            messagebox.showinfo("Success", f"Imported {len(data)} lines from Excel file.")
+            
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to import Excel file:\n\n{str(e)}")
+
     def update_preview(self, *_):
-        """Show the first label’s text with selected font"""
+        """Show the first label's text with selected font"""
         self.preview_canvas.delete("all")
         data = self.text_input.get("1.0", "end").strip().split("\n")
         lines_per_label = self.lines_var.get()
@@ -192,7 +319,7 @@ class LabelPrinterApp:
     def generate_labels(self):
         text = self.text_input.get("1.0", "end").strip()
         if not text:
-            messagebox.showwarning("No data", "Enter or paste label data first.")
+            messagebox.showwarning("No data", "Enter or paste label data first, or import from Excel.")
             return
         lines = [l.strip() for l in text.split("\n") if l.strip()]
         n = self.lines_var.get()
