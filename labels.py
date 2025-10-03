@@ -118,13 +118,13 @@ class LabelPrinterApp:
         # 🎨 Available fonts
         self.available_fonts = ["Arial", "Arial Narrow", "Helvetica", "Times New Roman", "Courier New"]
 
-        # 🗂 Font file map for PDF
+        # 🗂 Font file map for PDF (regular and bold)
         self.font_map = {
-            "Arial": ["arial.ttf", "ARIAL.TTF"],
-            "Arial Narrow": ["arialn.ttf", "ARIALN.TTF"],
-            "Helvetica": ["arial.ttf", "ARIAL.TTF"],
-            "Times New Roman": ["times.ttf", "TIMES.TTF"],
-            "Courier New": ["cour.ttf", "COUR.TTF"]
+            "Arial": [["arial.ttf", "ARIAL.TTF"], ["arialbd.ttf", "ARIALBD.TTF"]],
+            "Arial Narrow": [["arialn.ttf", "ARIALN.TTF"], ["arialnb.ttf", "ARIALNB.TTF"]],
+            "Helvetica": [["arial.ttf", "ARIAL.TTF"], ["arialbd.ttf", "ARIALBD.TTF"]],
+            "Times New Roman": [["times.ttf", "TIMES.TTF"], ["timesbd.ttf", "TIMESBD.TTF"]],
+            "Courier New": [["cour.ttf", "COUR.TTF"], ["courbd.ttf", "COURBD.TTF"]]
         }
 
         # Register fonts for PDF if found
@@ -140,20 +140,31 @@ class LabelPrinterApp:
         self.create_widgets()
 
     def register_fonts_for_pdf(self):
-        """Try to register available TTF fonts for PDF use"""
+        """Try to register available TTF fonts for PDF use (regular and bold)"""
         search_paths = [
             "C:\\Windows\\Fonts",
             "/usr/share/fonts",
             "/usr/local/share/fonts",
             str(Path.home() / ".fonts")
         ]
-        for name, files in self.font_map.items():
+        for name, font_variants in self.font_map.items():
+            # Register regular font
             for sp in search_paths:
-                for f in files:
+                for f in font_variants[0]:
                     path = Path(sp) / f
                     if path.exists():
                         try:
                             pdfmetrics.registerFont(TTFont(name, str(path)))
+                        except:
+                            pass
+                        break
+            # Register bold font
+            for sp in search_paths:
+                for f in font_variants[1]:
+                    path = Path(sp) / f
+                    if path.exists():
+                        try:
+                            pdfmetrics.registerFont(TTFont(f"{name}-Bold", str(path)))
                         except:
                             pass
                         break
@@ -321,7 +332,7 @@ class LabelPrinterApp:
         if not text:
             messagebox.showwarning("No data", "Enter or paste label data first, or import from Excel.")
             return
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        lines = [l.rstrip() for l in text.split("\n")]  # Keep empty lines, only strip trailing whitespace
         n = self.lines_var.get()
         labels = [lines[i:i+n] for i in range(0, len(lines), n)]
         if not labels:
@@ -339,27 +350,29 @@ class LabelPrinterApp:
     def create_pdf(self, filename, labels, lines_per_label):
         c = canvas.Canvas(filename, pagesize=A4)
         font_name = self.font_var.get()
+        use_bold = self.bold_var.get()
         for page_start in range(0, len(labels), self.cols * self.rows):
             if page_start > 0: c.showPage()
             for idx, label_lines in enumerate(labels[page_start:page_start + self.cols*self.rows]):
                 row, col = divmod(idx, self.cols)
                 x = self.left_margin + col * (self.label_width + self.col_gap)
                 y = A4[1] - self.top_margin - (row + 1) * self.label_height - row * self.row_gap
-                self.draw_label(c, x, y, label_lines, lines_per_label, font_name)
+                self.draw_label(c, x, y, label_lines, lines_per_label, font_name, use_bold)
         c.save()
 
-    def draw_label(self, c, x, y, lines, max_lines, font_name):
+    def draw_label(self, c, x, y, lines, max_lines, font_name, use_bold=False):
         pad = 2 * mm
         uw, uh = self.label_width - 2*pad, self.label_height - 2*pad
-        size = self.calculate_font_size(lines, uw, uh, max_lines, font_name)
+        actual_font_name = f"{font_name}-Bold" if use_bold else font_name
+        size = self.calculate_font_size(lines, uw, uh, max_lines, actual_font_name)
         line_h = size * 1.2
         total_h = len(lines) * line_h
         start_y = y + (self.label_height - total_h) / 2 + pad
         for i, line in enumerate(lines):
             ty = start_y + (len(lines)-1-i) * line_h
-            tw = c.stringWidth(line, font_name, size)
+            tw = c.stringWidth(line, actual_font_name, size)
             tx = x + (self.label_width - tw) / 2
-            c.setFont(font_name, size)
+            c.setFont(actual_font_name, size)
             c.drawString(tx, ty, line)
 
     def calculate_font_size(self, lines, max_w, max_h, max_lines, font_name):
