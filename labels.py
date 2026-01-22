@@ -371,7 +371,7 @@ class LabelPrinterApp:
         for i, line in enumerate(lines):
             ty = start_y + (len(lines)-1-i) * line_h
             tw = c.stringWidth(line, actual_font_name, size)
-            tx = x + (self.label_width - tw) / 2
+            tx = x + pad + (uw - tw) / 2
             c.setFont(actual_font_name, size)
             c.drawString(tx, ty, line)
 
