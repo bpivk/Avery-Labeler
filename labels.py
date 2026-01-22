@@ -135,7 +135,9 @@ class LabelPrinterApp:
         self.label_height = 33.8 * mm
         self.cols, self.rows = 3, 8
         self.col_gap, self.row_gap = 2.5 * mm, 0
-        self.left_margin, self.top_margin = 4.7 * mm, 13.5 * mm
+        # Adjust left margin to balance horizontal spacing (add half of col_gap)
+        self.left_margin = 4.7 * mm + (2.5 * mm / 2)
+        self.top_margin = 13.5 * mm
 
         self.create_widgets()
 
@@ -361,17 +363,17 @@ class LabelPrinterApp:
         c.save()
 
     def draw_label(self, c, x, y, lines, max_lines, font_name, use_bold=False):
-        pad = 2 * mm
-        uw, uh = self.label_width - 2*pad, self.label_height - 2*pad
         actual_font_name = f"{font_name}-Bold" if use_bold else font_name
-        size = self.calculate_font_size(lines, uw, uh, max_lines, actual_font_name)
+        size = self.calculate_font_size(lines, self.label_width, self.label_height, max_lines, actual_font_name)
         line_h = size * 1.2
         total_h = len(lines) * line_h
-        start_y = y + (self.label_height - total_h) / 2 + pad
+        # Center text vertically
+        start_y = y + (self.label_height - total_h) / 2
         for i, line in enumerate(lines):
             ty = start_y + (len(lines)-1-i) * line_h
             tw = c.stringWidth(line, actual_font_name, size)
-            tx = x + pad + (uw - tw) / 2
+            # Center text horizontally
+            tx = x + (self.label_width - tw) / 2
             c.setFont(actual_font_name, size)
             c.drawString(tx, ty, line)
 
