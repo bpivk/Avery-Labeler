@@ -109,7 +109,7 @@ class LabelPrinterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Label Printer - Avery 3658")
-        self.root.geometry("700x750")
+        self.root.geometry("700x850")
         self.license_mgr = LicenseManager()
         if not self.check_license():
             root.destroy()
@@ -134,10 +134,15 @@ class LabelPrinterApp:
         self.label_width = 64.6 * mm
         self.label_height = 33.8 * mm
         self.cols, self.rows = 3, 8
-        self.col_gap, self.row_gap = 2.5 * mm, 0
-        # Adjust left margin to balance horizontal spacing (add half of col_gap)
-        self.left_margin = 4.7 * mm + (2.5 * mm / 2)
-        self.top_margin = 13.5 * mm
+        self.col_gap, self.row_gap = 2.5 * mm, 0 * mm
+        self.left_margin, self.top_margin = 4.7 * mm, 13.5 * mm
+        
+        # Universal horizontal padding for all labels
+        self.universal_h_padding = tk.DoubleVar(value=2)  # mm from left/right edges
+        
+        # Additional column-specific padding adjustments
+        self.left_col_extra_padding = tk.DoubleVar(value=0)   # Extra left padding for left column
+        self.right_col_extra_padding = tk.DoubleVar(value=0)  # Extra right padding for right column
 
         self.create_widgets()
 
@@ -221,24 +226,55 @@ class LabelPrinterApp:
         self.text_input = scrolledtext.ScrolledText(input_frame, width=70, height=10)
         self.text_input.pack(fill="both", expand=True)
         self.text_input.bind("<<Modified>>", lambda e: (self.update_preview(), self.text_input.edit_modified(False)))
+        
+        # Add right-click context menu
+        self.context_menu = tk.Menu(self.text_input, tearoff=0)
+        self.context_menu.add_command(label="Cut", command=lambda: self.text_input.event_generate("<<Cut>>"))
+        self.context_menu.add_command(label="Copy", command=lambda: self.text_input.event_generate("<<Copy>>"))
+        self.context_menu.add_command(label="Paste", command=lambda: self.text_input.event_generate("<<Paste>>"))
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Select All", command=lambda: self.text_input.tag_add("sel", "1.0", "end"))
+        
+        def show_context_menu(event):
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        
+        self.text_input.bind("<Button-3>", show_context_menu)  # Right-click on Windows/Linux
+        self.text_input.bind("<Button-2>", show_context_menu)  # Right-click on Mac
 
         # ⚙ Settings
         settings = ttk.LabelFrame(main, text="Label Settings", padding=10)
         settings.pack(fill="x", pady=5)
 
-        ttk.Label(settings, text="Lines per label:").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Label(settings, text="Lines per label:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.lines_var = tk.IntVar(value=3)
-        ttk.Combobox(settings, textvariable=self.lines_var, values=[1,2,3,4,5,6], width=5, state='readonly').grid(row=0, column=1)
+        ttk.Combobox(settings, textvariable=self.lines_var, values=[1,2,3,4,5,6], width=5, state='readonly').grid(row=0, column=1, sticky="w")
         self.lines_var.trace_add("write", self.update_preview)
 
-        ttk.Label(settings, text="Font:").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Label(settings, text="Font:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.font_var = tk.StringVar(value="Arial")
         font_combo = ttk.Combobox(settings, textvariable=self.font_var, values=self.available_fonts, width=25, state='readonly')
-        font_combo.grid(row=1, column=1, padx=5)
+        font_combo.grid(row=1, column=1, padx=5, sticky="w")
         font_combo.bind("<<ComboboxSelected>>", lambda e: self.update_preview())
 
         self.bold_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(settings, text="Bold", variable=self.bold_var, command=self.update_preview).grid(row=1, column=2, padx=10)
+
+        # Universal padding
+        ttk.Label(settings, text="Universal H padding (mm):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        universal_padding_spinbox = ttk.Spinbox(settings, from_=0, to=15.0, increment=0.5, textvariable=self.universal_h_padding, width=8)
+        universal_padding_spinbox.grid(row=2, column=1, padx=5, sticky="w")
+        ttk.Label(settings, text="(applies to all labels)").grid(row=2, column=2, padx=5, sticky="w")
+
+        # Additional column-specific adjustments
+        ttk.Label(settings, text="Left col extra padding (mm):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        left_extra_spinbox = ttk.Spinbox(settings, from_=0, to=10.0, increment=0.5, textvariable=self.left_col_extra_padding, width=8)
+        left_extra_spinbox.grid(row=3, column=1, padx=5, sticky="w")
+        ttk.Label(settings, text="(adds to left edge only)").grid(row=3, column=2, padx=5, sticky="w")
+
+        ttk.Label(settings, text="Right col extra padding (mm):").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        right_extra_spinbox = ttk.Spinbox(settings, from_=0, to=10.0, increment=0.5, textvariable=self.right_col_extra_padding, width=8)
+        right_extra_spinbox.grid(row=4, column=1, padx=5, sticky="w")
+        ttk.Label(settings, text="(adds to right edge only)").grid(row=4, column=2, padx=5, sticky="w")
 
         # 👀 Preview
         preview_frame = ttk.LabelFrame(main, text="Preview", padding=10)
@@ -359,21 +395,43 @@ class LabelPrinterApp:
                 row, col = divmod(idx, self.cols)
                 x = self.left_margin + col * (self.label_width + self.col_gap)
                 y = A4[1] - self.top_margin - (row + 1) * self.label_height - row * self.row_gap
-                self.draw_label(c, x, y, label_lines, lines_per_label, font_name, use_bold)
+                self.draw_label(c, x, y, label_lines, lines_per_label, font_name, use_bold, col)
         c.save()
 
-    def draw_label(self, c, x, y, lines, max_lines, font_name, use_bold=False):
+    def draw_label(self, c, x, y, lines, max_lines, font_name, use_bold=False, col=1):
         actual_font_name = f"{font_name}-Bold" if use_bold else font_name
-        size = self.calculate_font_size(lines, self.label_width, self.label_height, max_lines, actual_font_name)
+        
+        # Calculate padding - this defines the "safe area" within the label
+        base_padding = self.universal_h_padding.get() * mm
+        left_pad = base_padding
+        right_pad = base_padding
+        
+        # Add column-specific extra padding
+        if col == 0:  # Left column
+            left_pad += self.left_col_extra_padding.get() * mm
+        elif col == 2:  # Right column
+            right_pad += self.right_col_extra_padding.get() * mm
+        
+        # Calculate the safe area width after padding
+        safe_width = self.label_width - left_pad - right_pad
+        
+        # Calculate font size based on the safe area (so text respects padding)
+        size = self.calculate_font_size(lines, safe_width, self.label_height, max_lines, actual_font_name)
         line_h = size * 1.2
         total_h = len(lines) * line_h
+        
         # Center text vertically
         start_y = y + (self.label_height - total_h) / 2
+        
+        # Draw each line, centered within the safe area
         for i, line in enumerate(lines):
             ty = start_y + (len(lines)-1-i) * line_h
             tw = c.stringWidth(line, actual_font_name, size)
-            # Center text horizontally
-            tx = x + (self.label_width - tw) / 2
+            
+            # Position text: start from label left edge + left padding, 
+            # then center within the safe width
+            tx = x + left_pad + (safe_width - tw) / 2
+            
             c.setFont(actual_font_name, size)
             c.drawString(tx, ty, line)
 
