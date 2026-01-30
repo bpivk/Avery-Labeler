@@ -1,15 +1,17 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-import openpyxl
 from datetime import datetime, timedelta
 import hashlib, json, base64
 from pathlib import Path
 import os
+
+# Heavy imports - lazy load only when needed
+# from reportlab.lib.units import mm
+# from reportlab.pdfgen import canvas
+# from reportlab.lib.pagesizes import A4
+# from reportlab.pdfbase import pdfmetrics
+# from reportlab.pdfbase.ttfonts import TTFont
+# import openpyxl
 
 class LicenseManager:
     def __init__(self):
@@ -52,7 +54,7 @@ class RegistrationDialog:
         self.license_mgr = license_mgr
         
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Register Software")
+        self.dialog.title("Registracija Programa")
         self.dialog.geometry("450x250")
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -66,21 +68,21 @@ class RegistrationDialog:
         frame = ttk.Frame(self.dialog, padding=20)
         frame.pack(fill="both", expand=True)
         
-        ttk.Label(frame, text="Enter your registration details:", font=("Arial", 10, "bold")).pack(pady=(0,10))
+        ttk.Label(frame, text="Vnesite registracijske podatke:", font=("Arial", 10, "bold")).pack(pady=(0,10))
         
-        ttk.Label(frame, text="Email:").pack(anchor="w")
+        ttk.Label(frame, text="E-pošta:").pack(anchor="w")
         self.email_entry = ttk.Entry(frame, width=40)
         self.email_entry.pack(pady=(0,10), fill="x")
         
-        ttk.Label(frame, text="License Key:").pack(anchor="w")
+        ttk.Label(frame, text="Licenčna Ključ:").pack(anchor="w")
         self.key_entry = ttk.Entry(frame, width=40)
         self.key_entry.pack(pady=(0,15), fill="x")
         
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(pady=10)
         
-        ttk.Button(btn_frame, text="Register", command=self.register).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Registriraj", command=self.register).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Prekliči", command=self.cancel).pack(side="left", padx=5)
         
         self.dialog.protocol("WM_DELETE_WINDOW", self.cancel)
         
@@ -89,17 +91,17 @@ class RegistrationDialog:
         key = self.key_entry.get().strip()
         
         if not email or not key:
-            messagebox.showwarning("Invalid Input", "Please enter both email and license key.", parent=self.dialog)
+            messagebox.showwarning("Napačen Vnos", "Prosim vnesite e-pošto in licenčni ključ.", parent=self.dialog)
             return
         
         expiry_date = self.license_mgr.validate_key(email, key)
         if expiry_date:
             self.license_mgr.save_license(email, expiry_date)
-            messagebox.showinfo("Success", f"Registration successful!\nLicense valid until: {expiry_date}", parent=self.dialog)
+            messagebox.showinfo("Uspeh", f"Registracija uspešna!\nLicenca veljavna do: {expiry_date}", parent=self.dialog)
             self.result = True
             self.dialog.destroy()
         else:
-            messagebox.showerror("Invalid License", "The license key is invalid or does not match the email.", parent=self.dialog)
+            messagebox.showerror("Neveljavna Licenca", "Licenčni ključ je neveljaven ali se ne ujema z e-pošto.", parent=self.dialog)
     
     def cancel(self):
         self.result = False
@@ -107,9 +109,13 @@ class RegistrationDialog:
 
 class LabelPrinterApp:
     def __init__(self, root):
+        # Import reportlab units here (lazy load)
+        from reportlab.lib.units import mm
+        global mm  # Make it available to other methods
+        
         self.root = root
-        self.root.title("Label Printer - Avery 3658")
-        self.root.geometry("700x850")
+        self.root.title("Tiskalnik Nalepk - Avery 3658")
+        self.root.geometry("750x800")
         self.license_mgr = LicenseManager()
         if not self.check_license():
             root.destroy()
@@ -128,14 +134,22 @@ class LabelPrinterApp:
         }
 
         # Register fonts for PDF if found
-        self.register_fonts_for_pdf()
+        self._fonts_registered = False  # Lazy load fonts only when needed
 
         # Avery 3658 specs
         self.label_width = 64.6 * mm
         self.label_height = 33.8 * mm
         self.cols, self.rows = 3, 8
-        self.col_gap, self.row_gap = 2.5 * mm, 0 * mm
-        self.left_margin, self.top_margin = 4.7 * mm, 13.5 * mm
+        self.col_gap, self.row_gap = 0 * mm, 0 * mm  # Labels touch - no physical gap
+        # Calculate left margin: (A4 width - 3 labels) / 2 = (210mm - 3*64.6mm) / 2 = 8.1mm
+        self.left_margin = (210 * mm - 3 * self.label_width) / 2
+        self.top_margin = 13.5 * mm
+        
+        # Font settings
+        self.lines_var = tk.IntVar(value=3)
+        self.font_var = tk.StringVar(value="Arial")
+        self.bold_var = tk.BooleanVar(value=False)
+        self.font_size_var = tk.IntVar(value=18)
         
         # Universal horizontal padding for all labels
         self.universal_h_padding = tk.DoubleVar(value=2)  # mm from left/right edges
@@ -148,6 +162,9 @@ class LabelPrinterApp:
 
     def register_fonts_for_pdf(self):
         """Try to register available TTF fonts for PDF use (regular and bold)"""
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        
         search_paths = [
             "C:\\Windows\\Fonts",
             "/usr/share/fonts",
@@ -183,8 +200,8 @@ class LabelPrinterApp:
         
         # No valid license - show registration dialog
         messagebox.showwarning(
-            "Registration Required", 
-            "This software requires a valid license to run.\n\nPlease enter your registration details."
+            "Potrebna Registracija", 
+            "Ta program zahteva veljavno licenco.\n\nProsim vnesite registracijske podatke."
         )
         
         dialog = RegistrationDialog(self.root, self.license_mgr)
@@ -201,27 +218,27 @@ class LabelPrinterApp:
         main = ttk.Frame(self.root, padding=10)
         main.pack(fill="both", expand=True)
 
-        ttk.Label(main, text="Label Printer - Avery Zweckform 3658", font=("Arial", 14, "bold")).pack(pady=10)
+        ttk.Label(main, text="Tiskalnik Nalepk - Avery Zweckform 3658", font=("Arial", 14, "bold")).pack(pady=10)
 
         # 🧭 Menu
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
         
         file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="File", menu=file_menu)
-        file_menu.add_command(label="Import from Excel", command=self.import_from_excel)
+        menubar.add_cascade(label="Datoteka", menu=file_menu)
+        file_menu.add_command(label="Uvozi iz Excela", command=self.import_from_excel)
         file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=self.root.quit)
+        file_menu.add_command(label="Izhod", command=self.root.quit)
         
         help_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Help", menu=help_menu)
-        help_menu.add_command(label="Register Software", command=self.show_registration_dialog)
-        help_menu.add_command(label="Check License", command=self.show_license_info)
+        menubar.add_cascade(label="Pomoč", menu=help_menu)
+        help_menu.add_command(label="Registracija Programa", command=self.show_registration_dialog)
+        help_menu.add_command(label="Preveri Licenco", command=self.show_license_info)
         help_menu.add_separator()
-        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="O programu", command=self.show_about)
 
         # 📋 Data input
-        input_frame = ttk.LabelFrame(main, text="Paste Data (one line per label line)", padding=10)
+        input_frame = ttk.LabelFrame(main, text="Vnesi Podatke (ena vrstica na vrstico nalepke)", padding=10)
         input_frame.pack(fill="both", expand=True, pady=5)
         self.text_input = scrolledtext.ScrolledText(input_frame, width=70, height=10)
         self.text_input.pack(fill="both", expand=True)
@@ -229,11 +246,11 @@ class LabelPrinterApp:
         
         # Add right-click context menu
         self.context_menu = tk.Menu(self.text_input, tearoff=0)
-        self.context_menu.add_command(label="Cut", command=lambda: self.text_input.event_generate("<<Cut>>"))
-        self.context_menu.add_command(label="Copy", command=lambda: self.text_input.event_generate("<<Copy>>"))
-        self.context_menu.add_command(label="Paste", command=lambda: self.text_input.event_generate("<<Paste>>"))
+        self.context_menu.add_command(label="Izreži", command=lambda: self.text_input.event_generate("<<Cut>>"))
+        self.context_menu.add_command(label="Kopiraj", command=lambda: self.text_input.event_generate("<<Copy>>"))
+        self.context_menu.add_command(label="Prilepi", command=lambda: self.text_input.event_generate("<<Paste>>"))
         self.context_menu.add_separator()
-        self.context_menu.add_command(label="Select All", command=lambda: self.text_input.tag_add("sel", "1.0", "end"))
+        self.context_menu.add_command(label="Izberi Vse", command=lambda: self.text_input.tag_add("sel", "1.0", "end"))
         
         def show_context_menu(event):
             self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -241,45 +258,47 @@ class LabelPrinterApp:
         self.text_input.bind("<Button-3>", show_context_menu)  # Right-click on Windows/Linux
         self.text_input.bind("<Button-2>", show_context_menu)  # Right-click on Mac
 
-        # ⚙ Settings
-        settings = ttk.LabelFrame(main, text="Label Settings", padding=10)
-        settings.pack(fill="x", pady=5)
+        # ⚙ Font Settings
+        font_settings = ttk.LabelFrame(main, text="Nastavitve Pisave", padding=10)
+        font_settings.pack(fill="x", pady=5)
 
-        ttk.Label(settings, text="Lines per label:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.lines_var = tk.IntVar(value=3)
-        ttk.Combobox(settings, textvariable=self.lines_var, values=[1,2,3,4,5,6], width=5, state='readonly').grid(row=0, column=1, sticky="w")
+        # Row 0: Lines per label and Font
+        ttk.Label(font_settings, text="Vrstic na nalepko:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Combobox(font_settings, textvariable=self.lines_var, values=[1,2,3,4,5,6], width=5, state='readonly').grid(row=0, column=1, padx=5, sticky="w")
         self.lines_var.trace_add("write", self.update_preview)
-
-        ttk.Label(settings, text="Font:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.font_var = tk.StringVar(value="Arial")
-        font_combo = ttk.Combobox(settings, textvariable=self.font_var, values=self.available_fonts, width=25, state='readonly')
-        font_combo.grid(row=1, column=1, padx=5, sticky="w")
+        
+        ttk.Label(font_settings, text="Pisava:").grid(row=0, column=2, padx=15, pady=5, sticky="w")
+        font_combo = ttk.Combobox(font_settings, textvariable=self.font_var, values=self.available_fonts, width=20, state='readonly')
+        font_combo.grid(row=0, column=3, padx=5, sticky="w")
         font_combo.bind("<<ComboboxSelected>>", lambda e: self.update_preview())
 
-        self.bold_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(settings, text="Bold", variable=self.bold_var, command=self.update_preview).grid(row=1, column=2, padx=10)
+        # Row 1: Font size and Bold
+        ttk.Label(font_settings, text="Velikost pisave (pt):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        font_size_spinbox = ttk.Spinbox(font_settings, from_=6, to=72, increment=1, textvariable=self.font_size_var, width=5, command=self.update_preview)
+        font_size_spinbox.grid(row=1, column=1, padx=5, sticky="w")
+        
+        ttk.Checkbutton(font_settings, text="Krepko", variable=self.bold_var, command=self.update_preview).grid(row=1, column=2, padx=15, sticky="w")
 
-        # Universal padding
-        ttk.Label(settings, text="Universal H padding (mm):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        universal_padding_spinbox = ttk.Spinbox(settings, from_=0, to=15.0, increment=0.5, textvariable=self.universal_h_padding, width=8)
-        universal_padding_spinbox.grid(row=2, column=1, padx=5, sticky="w")
-        ttk.Label(settings, text="(applies to all labels)").grid(row=2, column=2, padx=5, sticky="w")
+        # 📐 Padding Settings
+        padding_settings = ttk.LabelFrame(main, text="Nastavitve Odmikov (mm)", padding=10)
+        padding_settings.pack(fill="x", pady=5)
 
-        # Additional column-specific adjustments
-        ttk.Label(settings, text="Left col extra padding (mm):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
-        left_extra_spinbox = ttk.Spinbox(settings, from_=0, to=10.0, increment=0.5, textvariable=self.left_col_extra_padding, width=8)
-        left_extra_spinbox.grid(row=3, column=1, padx=5, sticky="w")
-        ttk.Label(settings, text="(adds to left edge only)").grid(row=3, column=2, padx=5, sticky="w")
-
-        ttk.Label(settings, text="Right col extra padding (mm):").grid(row=4, column=0, padx=5, pady=5, sticky="w")
-        right_extra_spinbox = ttk.Spinbox(settings, from_=0, to=10.0, increment=0.5, textvariable=self.right_col_extra_padding, width=8)
-        right_extra_spinbox.grid(row=4, column=1, padx=5, sticky="w")
-        ttk.Label(settings, text="(adds to right edge only)").grid(row=4, column=2, padx=5, sticky="w")
+        # Row 0: Universal padding
+        ttk.Label(padding_settings, text="Univerzalni:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Spinbox(padding_settings, from_=0, to=15.0, increment=0.5, textvariable=self.universal_h_padding, width=8, command=self.update_preview).grid(row=0, column=1, padx=5, sticky="w")
+        ttk.Label(padding_settings, text="(vse nalepke)").grid(row=0, column=2, padx=5, sticky="w")
+        
+        # Row 1: Left and Right column adjustments
+        ttk.Label(padding_settings, text="Levi stolpec dodatno:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ttk.Spinbox(padding_settings, from_=0, to=10.0, increment=0.5, textvariable=self.left_col_extra_padding, width=8, command=self.update_preview).grid(row=1, column=1, padx=5, sticky="w")
+        
+        ttk.Label(padding_settings, text="Desni stolpec dodatno:").grid(row=1, column=3, padx=15, pady=5, sticky="w")
+        ttk.Spinbox(padding_settings, from_=0, to=10.0, increment=0.5, textvariable=self.right_col_extra_padding, width=8, command=self.update_preview).grid(row=1, column=4, padx=5, sticky="w")
 
         # 👀 Preview
-        preview_frame = ttk.LabelFrame(main, text="Preview", padding=10)
+        preview_frame = ttk.LabelFrame(main, text="Predogled Nalepk (3 nalepke prikazane)", padding=10)
         preview_frame.pack(fill="x", pady=5)
-        self.preview_canvas = tk.Canvas(preview_frame, width=500, height=120, bg="white", relief="sunken", bd=1)
+        self.preview_canvas = tk.Canvas(preview_frame, width=700, height=140, bg="white", relief="sunken", bd=1)
         self.preview_canvas.pack(padx=10, pady=5)
         self.update_preview()
 
@@ -287,8 +306,136 @@ class LabelPrinterApp:
         button_frame = ttk.Frame(main)
         button_frame.pack(pady=15)
         
-        ttk.Button(button_frame, text="📁 Import from Excel", command=self.import_from_excel).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="📄 Generate PDF Labels", command=self.generate_labels).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="📁 Uvozi iz Excela", command=self.import_from_excel).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="📄 Generiraj PDF", command=self.generate_labels).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🖨 Natisni", command=self.print_labels).pack(side="left", padx=5)
+
+    def print_labels(self):
+        """Generate PDF and show printer selection dialog"""
+        text = self.text_input.get("1.0", "end").strip()
+        if not text:
+            messagebox.showwarning("Ni podatkov", "Najprej vnesite ali prilepite podatke za nalepke, ali uvozite iz Excela.")
+            return
+        
+        lines = [l.rstrip() for l in text.split("\n")]
+        n = self.lines_var.get()
+        labels = [lines[i:i+n] for i in range(0, len(lines), n)]
+        
+        if not labels:
+            messagebox.showwarning("Ni Podatkov", "Ni veljavnih podatkov za tiskanje")
+            return
+        
+        # Show printer selection dialog
+        import platform
+        
+        if platform.system() == 'Windows':
+            try:
+                self.show_windows_printer_dialog(labels, n)
+            except ImportError:
+                messagebox.showerror("Napaka", "Potrebna je knjižnica pywin32.\nNamestite z: pip install pywin32")
+        else:
+            # For non-Windows, use system print command
+            self.print_with_system_dialog(labels, n)
+    
+    def show_windows_printer_dialog(self, labels, lines_per_label):
+        """Show custom printer selection dialog for Windows"""
+        import win32print
+        
+        # Get list of printers
+        printers = [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+        default_printer = win32print.GetDefaultPrinter()
+        
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Izberi Tiskalnik")
+        dialog.geometry("450x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - 225
+        y = (dialog.winfo_screenheight() // 2) - 125
+        dialog.geometry(f'450x250+{x}+{y}')
+        
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill="both", expand=True)
+        
+        ttk.Label(frame, text="Izberite tiskalnik:", font=("Arial", 10, "bold")).pack(pady=(0, 10))
+        
+        # Printer listbox
+        listbox_frame = ttk.Frame(frame)
+        listbox_frame.pack(fill="both", expand=True, pady=(0, 10))
+        
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        printer_listbox = tk.Listbox(listbox_frame, yscrollcommand=scrollbar.set, height=8)
+        printer_listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=printer_listbox.yview)
+        
+        # Populate printer list
+        for i, printer in enumerate(printers):
+            printer_listbox.insert(tk.END, printer)
+            if printer == default_printer:
+                printer_listbox.selection_set(i)
+                printer_listbox.see(i)
+        
+        # Buttons
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack()
+        
+        def do_print():
+            selection = printer_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("Izberi Tiskalnik", "Prosim izberite tiskalnik.", parent=dialog)
+                return
+            
+            selected_printer = printers[selection[0]]
+            dialog.destroy()
+            
+            # Generate PDF and print
+            import tempfile
+            import os
+            temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+            temp_filename = temp_pdf.name
+            temp_pdf.close()
+            
+            try:
+                self.create_pdf(temp_filename, labels, lines_per_label)
+                
+                # Print to selected printer
+                win32print.SetDefaultPrinter(selected_printer)
+                os.startfile(temp_filename, 'print')
+                
+                # Restore original default printer after a short delay
+                self.root.after(2000, lambda: win32print.SetDefaultPrinter(default_printer) if default_printer != selected_printer else None)
+                
+                messagebox.showinfo("Tiskanje", f"Dokument poslan na tiskalnik:\n{selected_printer}")
+            except Exception as e:
+                messagebox.showerror("Napaka pri Tiskanju", f"Napaka:\n\n{str(e)}")
+        
+        ttk.Button(btn_frame, text="Natisni", command=do_print).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Prekliči", command=dialog.destroy).pack(side="left", padx=5)
+        
+        # Bind double-click to print
+        printer_listbox.bind('<Double-Button-1>', lambda e: do_print())
+    
+    def print_with_system_dialog(self, labels, lines_per_label):
+        """Fallback for non-Windows systems"""
+        import tempfile
+        import subprocess
+        
+        temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        temp_filename = temp_pdf.name
+        temp_pdf.close()
+        
+        try:
+            self.create_pdf(temp_filename, labels, lines_per_label)
+            subprocess.run(['lp', temp_filename])
+            messagebox.showinfo("Tiskanje", "Dokument poslan na tiskalnik.")
+        except Exception as e:
+            messagebox.showerror("Napaka pri Tiskanju", f"Napaka:\n\n{str(e)}")
 
     def show_registration_dialog(self):
         dialog = RegistrationDialog(self.root, self.license_mgr)
@@ -299,28 +446,35 @@ class LabelPrinterApp:
         if data:
             days = self.license_mgr.get_days_remaining()
             messagebox.showinfo(
-                "License Info",
-                f"Licensed Email: {data['email']}\n"
-                f"Expires on: {data['expiry']}\n"
-                f"Days remaining: {days}"
+                "Informacije o Licenci",
+                f"Licenčna E-pošta: {data['email']}\n"
+                f"Poteče: {data['expiry']}\n"
+                f"Dni do poteka: {days}"
             )
         else:
-            messagebox.showwarning("License Info", "No valid license found.")
+            messagebox.showwarning("Informacije o Licenci", "Veljavna licenca ni najdena.")
 
     def show_about(self):
         messagebox.showinfo(
-            "About",
-            "Label Printer - Avery Zweckform 3658\n"
-            "Version 1.4\n\n"
-            "Developed by Blaž Pivk\n"
-            "© 2025"
+            "O Programu",
+            "Tiskalnik Nalepk - Avery Zweckform 3658\n"
+            "Verzija 2.0\n\n"
+            "Razvil Blaž Pivk\n"
+            "© 2026"
         )
 
     def import_from_excel(self):
         """Import data from Excel file (first column only)"""
+        # Lazy import openpyxl only when needed
+        try:
+            import openpyxl
+        except ImportError:
+            messagebox.showerror("Manjkajoča Knjižnica", "openpyxl ni nameščen. Namestite z: pip install openpyxl")
+            return
+        
         filename = filedialog.askopenfilename(
-            title="Select Excel File",
-            filetypes=[("Excel Files", "*.xlsx *.xls"), ("All Files", "*.*")]
+            title="Izberi Excel Datoteko",
+            filetypes=[("Excel Datoteke", "*.xlsx *.xls"), ("Vse Datoteke", "*.*")]
         )
         
         if not filename:
@@ -339,7 +493,7 @@ class LabelPrinterApp:
                     data.append(str(cell_value).strip())
             
             if not data:
-                messagebox.showwarning("No Data", "No data found in the first column of the Excel file.")
+                messagebox.showwarning("Ni Podatkov", "V prvem stolpcu Excel datoteke ni podatkov.")
                 return
             
             # Clear current text and insert imported data
@@ -347,45 +501,128 @@ class LabelPrinterApp:
             self.text_input.insert("1.0", "\n".join(data))
             self.update_preview()
             
-            messagebox.showinfo("Success", f"Imported {len(data)} lines from Excel file.")
+            messagebox.showinfo("Uspeh", f"Uvoženih {len(data)} vrstic iz Excel datoteke.")
             
         except Exception as e:
-            messagebox.showerror("Import Error", f"Failed to import Excel file:\n\n{str(e)}")
+            messagebox.showerror("Napaka pri Uvozu", f"Napaka pri uvozu Excel datoteke:\n\n{str(e)}")
 
     def update_preview(self, *_):
-        """Show the first label's text with selected font"""
+        """Show 3 labels (left, center, right) with proper scaling"""
         self.preview_canvas.delete("all")
         data = self.text_input.get("1.0", "end").strip().split("\n")
         lines_per_label = self.lines_var.get()
+        
         if data and data[0]:
             text_lines = data[:lines_per_label]
         else:
-            text_lines = ["Sample Label Text"]
-        text = "\n".join(text_lines)
-        font = (self.font_var.get(), 14, "bold" if self.bold_var.get() else "normal")
-        self.preview_canvas.create_text(250, 60, text=text, font=font, justify="center", fill="black")
+            text_lines = ["Vzorčna Nalepka", "Besedilo Tukaj", "Vrstica 3"][:lines_per_label]
+        
+        # Calculate scale to fit labels in preview (64.6mm label width)
+        scale = 3.0  # pixels per mm
+        label_w = 64.6 * scale
+        label_h = 33.8 * scale
+        gap = 0 * scale  # Labels touch - no physical gap (Word template lines are just visual guides)
+        
+        # Calculate padding
+        base_pad = self.universal_h_padding.get() * scale
+        left_extra = self.left_col_extra_padding.get() * scale
+        right_extra = self.right_col_extra_padding.get() * scale
+        
+        font_name = self.font_var.get()
+        font_size = self.font_size_var.get()
+        font_weight = "bold" if self.bold_var.get() else "normal"
+        
+        # Draw 3 labels
+        start_x = 20
+        start_y = 10
+        
+        for col in range(3):
+            x = start_x + col * (label_w + gap)
+            
+            # Draw label border
+            self.preview_canvas.create_rectangle(
+                x, start_y, x + label_w, start_y + label_h,
+                outline="lightgray", width=2
+            )
+            
+            # Calculate padding for this column
+            if col == 0:  # Left
+                left_pad = base_pad + left_extra
+                right_pad = base_pad
+                label_text = "LEVO"
+            elif col == 1:  # Center
+                left_pad = base_pad
+                right_pad = base_pad
+                label_text = "SREDINA"
+            else:  # Right
+                left_pad = base_pad
+                right_pad = base_pad + right_extra
+                label_text = "DESNO"
+            
+            # Draw padding guides (light red lines)
+            if left_pad > 0:
+                self.preview_canvas.create_line(
+                    x + left_pad, start_y, x + left_pad, start_y + label_h,
+                    fill="pink", dash=(2, 2)
+                )
+            if right_pad > 0:
+                self.preview_canvas.create_line(
+                    x + label_w - right_pad, start_y, x + label_w - right_pad, start_y + label_h,
+                    fill="pink", dash=(2, 2)
+                )
+            
+            # Calculate safe width
+            safe_w = label_w - left_pad - right_pad
+            
+            # Draw text lines
+            text_y = start_y + label_h / 2 - (len(text_lines) - 1) * font_size * 0.6
+            for line in text_lines:
+                self.preview_canvas.create_text(
+                    x + left_pad + safe_w / 2, text_y,
+                    text=line,
+                    font=(font_name, max(6, int(font_size * 0.8)), font_weight),
+                    fill="black"
+                )
+                text_y += font_size * 1.2 * 0.8
+            
+            # Label indicator
+            self.preview_canvas.create_text(
+                x + label_w / 2, start_y + label_h + 10,
+                text=label_text,
+                font=("Arial", 8),
+                fill="gray"
+            )
 
     def generate_labels(self):
         text = self.text_input.get("1.0", "end").strip()
         if not text:
-            messagebox.showwarning("No data", "Enter or paste label data first, or import from Excel.")
+            messagebox.showwarning("Ni podatkov", "Najprej vnesite ali prilepite podatke za nalepke, ali uvozite iz Excela.")
             return
         lines = [l.rstrip() for l in text.split("\n")]  # Keep empty lines, only strip trailing whitespace
         n = self.lines_var.get()
         labels = [lines[i:i+n] for i in range(0, len(lines), n)]
         if not labels:
-            messagebox.showwarning("No Data", "No valid data to print")
+            messagebox.showwarning("Ni Podatkov", "Ni veljavnih podatkov za tiskanje")
             return
         filename = filedialog.asksaveasfilename(defaultextension=".pdf",
-            filetypes=[("PDF", "*.pdf")], initialfile=f"labels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+            filetypes=[("PDF", "*.pdf")], initialfile=f"nalepke_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
         if not filename: return
         try:
             self.create_pdf(filename, labels, n)
-            messagebox.showinfo("Success", f"PDF saved: {filename}")
+            messagebox.showinfo("Uspeh", f"PDF shranjen: {filename}")
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Napaka", str(e))
 
     def create_pdf(self, filename, labels, lines_per_label):
+        # Lazy import reportlab only when generating PDF
+        from reportlab.pdfgen import canvas
+        from reportlab.lib.pagesizes import A4
+        
+        # Lazy load fonts only when generating PDF (not at startup)
+        if not self._fonts_registered:
+            self.register_fonts_for_pdf()
+            self._fonts_registered = True
+        
         c = canvas.Canvas(filename, pagesize=A4)
         font_name = self.font_var.get()
         use_bold = self.bold_var.get()
@@ -401,6 +638,11 @@ class LabelPrinterApp:
     def draw_label(self, c, x, y, lines, max_lines, font_name, use_bold=False, col=1):
         actual_font_name = f"{font_name}-Bold" if use_bold else font_name
         
+        # Use fixed font size from GUI (no auto-resize)
+        size = self.font_size_var.get()
+        line_h = size * 1.2
+        total_h = len(lines) * line_h
+        
         # Calculate padding - this defines the "safe area" within the label
         base_padding = self.universal_h_padding.get() * mm
         left_pad = base_padding
@@ -414,11 +656,6 @@ class LabelPrinterApp:
         
         # Calculate the safe area width after padding
         safe_width = self.label_width - left_pad - right_pad
-        
-        # Calculate font size based on the safe area (so text respects padding)
-        size = self.calculate_font_size(lines, safe_width, self.label_height, max_lines, actual_font_name)
-        line_h = size * 1.2
-        total_h = len(lines) * line_h
         
         # Center text vertically
         start_y = y + (self.label_height - total_h) / 2
@@ -447,7 +684,13 @@ class LabelPrinterApp:
 
 def main():
     root = tk.Tk()
-    LabelPrinterApp(root)
+    root.withdraw()  # Hide initially
+    
+    # Create app
+    app = LabelPrinterApp(root)
+    
+    # Show window after widgets are created
+    root.deiconify()
     root.mainloop()
 
 if __name__ == "__main__":
